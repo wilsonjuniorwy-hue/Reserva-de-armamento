@@ -86,6 +86,7 @@ export function parseHandoverDescription(desc: string): ParsedHandover {
   let confText = '';
 
   let currentSection = '';
+  let skippingStockConference = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -183,6 +184,30 @@ export function parseHandoverDescription(desc: string): ParsedHandover {
         });
       }
     } else if (currentSection === 'PENDENCIAS') {
+      const isStockConfStart = 
+        line.toUpperCase().includes('[CONFERENCIA ESTOQUE]') ||
+        line.toUpperCase().includes('[CONFERÊNCIA ESTOQUE]') ||
+        line.includes('=== CONFERÊNCIA FÍSICA E QUANTITATIVA DE ESTOQUE ===') ||
+        line.includes('=== CONFERENCIA FISICA E QUANTITATIVA DE ESTOQUE ===');
+
+      if (isStockConfStart) {
+        skippingStockConference = true;
+        continue;
+      }
+
+      if (skippingStockConference) {
+        const isNextBlock = 
+          line.startsWith('[OCORRÊNCIA') ||
+          line.startsWith('[OCORRENCIA') ||
+          line.startsWith('2. PENDÊNCIAS') ||
+          line.startsWith('2. PENDENCIAS');
+        if (isNextBlock) {
+          skippingStockConference = false;
+        } else {
+          continue;
+        }
+      }
+
       pendenciasText += (pendenciasText ? '\n' : '') + line;
     } else if (currentSection === 'CONFERENCIA') {
       confText += (confText ? '\n' : '') + line;
@@ -193,6 +218,19 @@ export function parseHandoverDescription(desc: string): ParsedHandover {
         passagemText += (passagemText ? '\n' : '') + line;
       }
     }
+  }
+
+  const pendenciasLimpo = pendenciasText
+    .replace(/^1\.\s*OCORR[ÊE]NCIAS\s*E\s*EVENTOS\s*REGISTRADOS\s*NO\s*LIVRO\s*DIGITAL:\s*$/im, '')
+    .trim();
+
+  if (!pendenciasLimpo) {
+    pendenciasText = 'Nenhuma alteração, ocorrência ou pendência registrada durante o plantão.';
+    if (passagemText.includes('com as seguintes alterações')) {
+      passagemText = passagemText.replace('com as seguintes alterações', 'sem alterações');
+    }
+  } else {
+    pendenciasText = pendenciasLimpo;
   }
 
   return {

@@ -1,13 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Terminal, ShieldAlert, CheckCircle, Printer, Boxes, BookOpen, Check, AlertTriangle, X,
-  PlusCircle, ClipboardList, History, FileText, Calendar, Search, Clock, ChevronDown, Download, Sparkles, FileDown
+  PlusCircle, ClipboardList, History, FileText, Calendar, Search, Clock, ChevronDown, Download, Sparkles
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { hashSHA256 } from '../utils/crypto';
 import { OcorrenciaRelatorio, Material, PendenciaServico, Usuario, Cautela, CautelaItem, ArmaParticular, Categoria } from '../types';
-import { formatPostoGraduacaoSigla } from '../utils/rankUtils';
-import { exportarPassagemServicoDocx } from '../utils/docxExport';
+import { formatPostoGraduacaoSigla, sanitizeHandoverDescriptionText } from '../utils/rankUtils';
 
 interface OcorrenciasViewProps {
   ocorrencias: OcorrenciaRelatorio[];
@@ -398,7 +397,7 @@ export function OcorrenciasView({
     const ocorrenciasPlantao = ocorrencias.filter(o => {
       const oMs = new Date(o.data_hora).getTime();
       if (o.tipo === 'troca_turno') return false;
-      if (o.tipo === 'conferencia_estoque' && o.titulo.toUpperCase().includes('CONFERÊNCIA DE ESTOQUE - PAIOL')) return false;
+      if (o.tipo === 'conferencia_estoque') return false;
       return oMs >= inicioPlantaoMs && oMs <= agora.getTime();
     }).sort((a, b) => new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime());
 
@@ -998,6 +997,14 @@ Riacho Fundo I - DF, ${dataMinusculo}.`;
     return ocorrencias.filter(o => {
       const dMs = parseDateSafe(o.data_hora);
       return dMs >= startMs && dMs <= endMs && o.tipo !== 'conferencia_estoque';
+    }).map(o => {
+      if (o.tipo === 'troca_turno') {
+        return {
+          ...o,
+          descricao: sanitizeHandoverDescriptionText(o.descricao)
+        };
+      }
+      return o;
     });
   }, [ocorrencias, startDateStr, endDateStr]);
 
@@ -1590,27 +1597,14 @@ ${estoqueObservacao.trim() || 'Sem divergências ou alterações físicas relata
                         <Printer className="h-3 w-3" />
                         <span>Imprimir</span>
                       </button>
-
-                      {oco.tipo === 'troca_turno' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const armUser = usuarios.find(u => u.matricula === oco.matricula_armeiro) || loggedArmeiroUser;
-                            exportarPassagemServicoDocx(oco, armUser);
-                          }}
-                          className="bg-blue-950/60 hover:bg-blue-900/80 border border-blue-800/60 hover:border-blue-700 text-blue-300 hover:text-blue-100 py-1 px-2 rounded text-[9px] uppercase font-bold tracking-wider transition-colors flex items-center gap-1 cursor-pointer no-print font-mono"
-                          title="Baixar Livro Diário em formato Word (.docx)"
-                        >
-                          <FileDown className="h-3 w-3" />
-                          <span>Baixar DOCX</span>
-                        </button>
-                      )}
                     </div>
                   </div>
 
                   <div className="space-y-1 font-sans">
                     <h4 className="text-xs font-bold text-slate-100 uppercase font-mono">{oco.titulo}</h4>
-                    <p className="text-[11px] text-slate-400 leading-normal whitespace-pre-wrap">{oco.descricao}</p>
+                    <p className="text-[11px] text-slate-400 leading-normal whitespace-pre-wrap">
+                      {oco.tipo === 'troca_turno' ? sanitizeHandoverDescriptionText(oco.descricao) : oco.descricao}
+                    </p>
                   </div>
 
                   <div className="flex justify-between items-center text-[9px] text-slate-500 pt-1.5 border-t border-slate-905">
@@ -3126,33 +3120,21 @@ ${estoqueObservacao.trim() || 'Sem divergências ou alterações físicas relata
               </div>
 
               <p className="text-xs text-slate-300 font-sans leading-relaxed">
-                Você pode baixar a ata em formato <strong>Word (.docx)</strong> para edição e arquivamento, ou abrir o diálogo de impressão para salvar o <strong>PDF oficial</strong>:
+                Abra o diálogo de impressão para emitir ou salvar o <strong>PDF oficial</strong> com fé pública:
               </p>
 
-              {/* Botões de Ação Principais */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportarPassagemServicoDocx(handoverSuccessOco, loggedArmeiroUser);
-                  }}
-                  className="px-4 py-3 bg-blue-600 hover:bg-blue-550 text-white font-bold font-mono text-xs rounded-xl transition-all shadow-md hover:shadow-blue-500/20 active:scale-95 duration-150 cursor-pointer flex items-center justify-center gap-2 glow-blue"
-                  id="btn-baixar-docx-sucesso"
-                >
-                  <FileDown className="h-4 w-4 shrink-0" />
-                  <span>Baixar Word (.docx)</span>
-                </button>
-
+              {/* Botão de Ação Principal */}
+              <div className="pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     handlePrintOcorrencia(handoverSuccessOco);
                   }}
-                  className="px-4 py-3 bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-slate-600 text-slate-100 font-bold font-mono text-xs rounded-xl transition-all shadow-md active:scale-95 duration-150 cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-550 text-white font-bold font-mono text-xs rounded-xl transition-all shadow-md hover:shadow-blue-500/20 active:scale-95 duration-150 cursor-pointer flex items-center justify-center gap-2 glow-blue"
                   id="btn-imprimir-pdf-sucesso"
                 >
                   <Printer className="h-4 w-4 shrink-0" />
-                  <span>Salvar / Imprimir PDF</span>
+                  <span>Salvar / Imprimir PDF Oficial</span>
                 </button>
               </div>
             </div>

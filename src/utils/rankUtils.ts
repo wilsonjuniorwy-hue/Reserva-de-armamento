@@ -111,3 +111,106 @@ export function formatMatriculaArmeiroInterna(matricula: string): string {
   return `ARM-${clean}`;
 }
 
+/**
+ * Remove qualquer bloco redundante de conferência de estoque que tenha sido acidentalmente
+ * gravado dentro da seção de alterações de uma ata de passagem de serviço (troca_turno).
+ */
+export function sanitizeHandoverDescriptionText(desc: string): string {
+  if (!desc || typeof desc !== 'string') return '';
+  if (!desc.includes('ATA DE PASSAGEM DE SERVIÇO') && !desc.includes('SITUAÇÃO DAS ALTERAÇÕES')) {
+    return desc;
+  }
+
+  const lines = desc.split('\n');
+  let currentSection = '';
+  let skippingStockConference = false;
+  const topLines: string[] = [];
+  const pendenciasLines: string[] = [];
+  const passagemLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (
+      trimmed === 'SITUAÇÃO DAS ALTERAÇÕES E PENDÊNCIAS DO SERVIÇO' ||
+      trimmed === 'SITUACAO DAS ALTERACOES E PENDENCIAS DO SERVICO'
+    ) {
+      currentSection = 'PENDENCIAS';
+      continue;
+    }
+
+    if (trimmed === 'PASSAGEM DE SERVIÇO' || trimmed === 'PASSAGEM DE SERVICO') {
+      currentSection = 'PASSAGEM';
+      continue;
+    }
+
+    if (currentSection === 'PENDENCIAS') {
+      const isStockConfStart = 
+        trimmed.toUpperCase().includes('[CONFERENCIA ESTOQUE]') ||
+        trimmed.toUpperCase().includes('[CONFERÊNCIA ESTOQUE]') ||
+        trimmed.includes('=== CONFERÊNCIA FÍSICA E QUANTITATIVA DE ESTOQUE ===') ||
+        trimmed.includes('=== CONFERENCIA FISICA E QUANTITATIVA DE ESTOQUE ===');
+
+      if (isStockConfStart) {
+        skippingStockConference = true;
+        continue;
+      }
+
+      if (skippingStockConference) {
+        const isNextBlock = 
+          trimmed.startsWith('[OCORRÊNCIA') ||
+          trimmed.startsWith('[OCORRENCIA') ||
+          trimmed.startsWith('2. PENDÊNCIAS') ||
+          trimmed.startsWith('2. PENDENCIAS');
+        if (isNextBlock) {
+          skippingStockConference = false;
+        } else {
+          continue;
+        }
+      }
+
+      pendenciasLines.push(line);
+    } else if (currentSection === 'PASSAGEM') {
+      passagemLines.push(line);
+    } else {
+      topLines.push(line);
+    }
+  }
+
+  // Se não foi encontrada a seção de alterações, retorna o texto original
+  if (currentSection === '') return desc;
+
+  // Limpar a seção de pendências / ocorrências
+  const pendenciasJoined = pendenciasLines.join('\n').trim();
+  const pendenciasLimpo = pendenciasJoined
+    .replace(/^1\.\s*OCORR[ÊE]NCIAS\s*E\s*EVENTOS\s*REGISTRADOS\s*NO\s*LIVRO\s*DIGITAL:\s*$/im, '')
+    .trim();
+
+  let finalAlteracoes = '';
+  let hasRealAlteracoes = false;
+
+  if (!pendenciasLimpo || pendenciasLimpo === 'Nenhuma alteração, ocorrência ou pendência registrada durante o plantão.') {
+    finalAlteracoes = 'Nenhuma alteração, ocorrência ou pendência registrada durante o plantão.';
+    hasRealAlteracoes = false;
+  } else {
+    finalAlteracoes = pendenciasJoined;
+    hasRealAlteracoes = true;
+  }
+
+  let finalPassagem = passagemLines.join('\n').trim();
+  if (!hasRealAlteracoes && finalPassagem.includes('com as seguintes alterações')) {
+    finalPassagem = finalPassagem.replace('com as seguintes alterações', 'sem alterações');
+  }
+
+  return [
+    topLines.join('\n').trim(),
+    '',
+    'SITUAÇÃO DAS ALTERAÇÕES E PENDÊNCIAS DO SERVIÇO',
+    finalAlteracoes,
+    '',
+    'PASSAGEM DE SERVIÇO',
+    finalPassagem
+  ].join('\n');
+}
+
